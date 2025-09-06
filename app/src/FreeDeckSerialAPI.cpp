@@ -95,26 +95,32 @@ unsigned long int readSerialBinary() {
   return number;
 }
 
+// === revised oled_write_data() ===
 void oled_write_data() {
   last_data_received = millis();
   uint8_t display = readSerialBinary();
   setMuxAddress(display, DISPLAY);
-  uint16_t received = 0;
-  unsigned char buffer[1024];
-  uint32_t ellapsed = millis();
 
-  do {
-    while (!Serial.available()) {
-      if (millis() - ellapsed > 1000) {
-        break;
-      }
-    };
-    ellapsed = millis();
-    uint8_t temp[IMG_CACHE_SIZE];
-    size_t len = Serial.readBytes(temp, IMG_CACHE_SIZE);
-    oledLoadBMPPart(temp, IMG_CACHE_SIZE, received);
-    received += len;
-  } while (received < 1024);
+  uint16_t received = 0;
+  uint32_t lastByteTime = millis();
+
+  // stream until full 1KB image or timeout
+  while (received < 1024) {
+    if (millis() - lastByteTime > 1000) {
+      break; // abort if no data for 1s
+    }
+
+    if (Serial.available()) {
+      uint8_t temp[IMG_CACHE_SIZE];
+      size_t len = Serial.readBytes(temp, IMG_CACHE_SIZE);
+
+      lastByteTime = millis();
+
+      // send exactly what we got
+      oledLoadBMPPart(temp, len, received);
+      received += len;
+    }
+  }
 }
 
 void handleAPI() {
@@ -164,10 +170,10 @@ void handleAPI() {
   if (command == 0x32) {  // get page count
     Serial.println(pageCount);
   }
-  if (command == 0x43) {
+  if (command == 0x43) {  // oled send image
     oled_write_data();
   }
-  if (command == 0x44) {  // oled test parameters
+  if (command == 0x44) {  // oled technical parameters
     uint8_t oled_speed = readSerialAscii();
     uint8_t oled_delay = readSerialAscii();
     uint8_t pre_charge_period = readSerialAscii();
