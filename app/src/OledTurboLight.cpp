@@ -120,19 +120,8 @@ void oledInit(uint8_t bAddr, uint8_t pre_charge_period, uint8_t refresh_frequenc
   I2CPORT |= (1 << BB_SCL);
 
   I2CWrite(oled_addr, oled_initbuf, sizeof(oled_initbuf));
-  // if (bInvert) {
-  //   uc[0] = 0;    // command
-  //   uc[1] = 0xa7; // invert command
-  //   I2CWrite(oled_addr, uc, 2);
-  // }
-  // if (bFlip) { // rotate display 180
-  //   uc[0] = 0; // command
-  //   uc[1] = 0xa0;
-  //   I2CWrite(oled_addr, uc, 2);
-  //   uc[1] = 0xc0;
-  //   I2CWrite(oled_addr, uc, 2);
-  // }
 } /* oledInit() */
+
 //
 // Sends a command to turn off the OLED display
 //
@@ -141,7 +130,7 @@ void oledShutdown() {
 }
 
 void oledTurnOn() {
-  oledWriteCommand(0xaf);  // turn off OLED
+  oledWriteCommand(0xaf);  // turn on OLED
 }
 
 // Send a single uint8_t command to the OLED controller
@@ -192,48 +181,46 @@ static void oledWriteDataBlock(unsigned char *ucBuf, int iLen) {
   // Keep a copy in local buffer
 }
 
+//
 // Set (or clear) an individual pixel
-// The local copy of the frame buffer is used to avoid
-// reading data from the display controller
+//
 int oledSetPixel(int x, int y, unsigned char ucColor) {
-  int i;
-  unsigned char uc, ucOld;
-
-  i = ((y >> 3) * 128) + x;
-  if (i < 0 || i > 1023)  // off the screen
+  if (x < 0 || x >= 128 || y < 0 || y >= 64)  // bounds check
     return -1;
 
-  uc = ucOld = 0;
+  int i = ((y >> 3) * 128) + x;  // page + column
+  uint8_t bitMask = 1 << (y & 7);
 
-  uc &= ~(0x1 << (y & 7));
-  if (ucColor) {
-    uc |= (0x1 << (y & 7));
-  }
-  if (uc != ucOld) {  // pixel changed
-    oledSetPosition(x, y >> 3);
-    oledWriteDataBlock(&uc, 1);
-  }
+  // Create a byte for the pixel (1 = on, 0 = off)
+  uint8_t uc = (ucColor ? bitMask : 0);
+
+  // Move cursor to the correct spot
+  oledSetPosition(x, y >> 3);
+
+  // Write that single byte
+  oledWriteDataBlock(&uc, 1);
+
   return 0;
 } /* oledSetPixel() */
 
 //
-// Load a 128x64 1-bpp Windows bitmap
-// Pass the pointer to the beginning of the BMP file
-// First pass version assumes a full screen bitmap
+// Load part of a 128x64 bitmap (BMP style raw data)
 //
-void oledLoadBMPPart(uint8_t *pBMP, int bytes = 1024, int offset = 0) {
-  int y;  // offset to bitmap data
-  int iPitch = 128;
-  uint8_t factor = bytes / iPitch;  // 512/128 = 4
-  oledSetPosition(0, offset / 16 / 8);
-  for (y = 0; y < factor; y++) {  // 8 lines of 8 pixels
+void oledLoadBMPPart(uint8_t *pBMP, int bytes, int offset) {
+  if (!pBMP || bytes <= 0) return;
+
+  int iPitch = 128;                  // width of screen
+  int pages = bytes / iPitch;        // number of 8-pixel rows
+  int startPage = offset / iPitch;   // where to start
+
+  for (int y = 0; y < pages; y++) {
+    oledSetPosition(0, startPage + y);
     oledWriteDataBlock(&pBMP[y * iPitch], iPitch);
-  }  // for y
-  // oledCachedFlush();
-} /* oledLoadBMP() */
+  }
+} /* oledLoadBMPPart() */
+
 //
 // Fill the frame buffer with a uint8_t pattern
-// e.g. all off (0x00) or all on (0xff)
 //
 void oledFill(unsigned char ucData) {
   int x, y;
