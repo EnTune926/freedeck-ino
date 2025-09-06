@@ -119,6 +119,22 @@ void oled_write_data() {
     }
   }
 }
+
+// ------------------ NEW ------------------
+
+void oled_clear() {
+    oledFill(0x00);
+}
+
+void oled_power() {
+    uint8_t state = readSerialBinary();  // 0 = off, 1 = on
+    if (state == 0) {
+        oledShutdown();
+    } else {
+        oledTurnOn();
+    }
+}
+
 // ---------------------------------------------------------------------
 
 void handleAPI() {
