@@ -73,7 +73,6 @@ unsigned long int readSerialAscii() {
   size_t len = Serial.readBytesUntil('\n', numberChars, 9);
   if (len == 0)
     return ULONG_MAX;
-  // remove any trailing extra stuff that atol does not like
   char clean[len + 1];
   memcpy(clean, &numberChars[0], len + 1 * sizeof(char));
   clean[len] = '\0';
@@ -95,33 +94,32 @@ unsigned long int readSerialBinary() {
   return number;
 }
 
-// === revised oled_write_data() ===
+// -------------------- NEW OPTIMIZED OLED FUNCTION --------------------
 void oled_write_data() {
   last_data_received = millis();
   uint8_t display = readSerialBinary();
   setMuxAddress(display, DISPLAY);
 
-  uint16_t received = 0;
-  uint32_t lastByteTime = millis();
+  uint16_t totalReceived = 0;
+  uint8_t buffer[IMG_CACHE_SIZE];
 
-  // stream until full 1KB image or timeout
-  while (received < 1024) {
-    if (millis() - lastByteTime > 1000) {
-      break; // abort if no data for 1s
+  while (totalReceived < 1024) {
+    uint32_t startMillis = millis();
+    size_t len = Serial.readBytes(buffer, IMG_CACHE_SIZE);
+
+    if (len > 0) {
+      oledLoadBMPPart(buffer, len, totalReceived);
+      totalReceived += len;
+      startMillis = millis();
     }
 
-    if (Serial.available()) {
-      uint8_t temp[IMG_CACHE_SIZE];
-      size_t len = Serial.readBytes(temp, IMG_CACHE_SIZE);
-
-      lastByteTime = millis();
-
-      // send exactly what we got
-      oledLoadBMPPart(temp, len, received);
-      received += len;
+    // Timeout if no data received in 1 second
+    if (millis() - startMillis > 1000) {
+      break;
     }
   }
 }
+// ---------------------------------------------------------------------
 
 void handleAPI() {
   unsigned long command = readSerialBinary();
@@ -170,10 +168,10 @@ void handleAPI() {
   if (command == 0x32) {  // get page count
     Serial.println(pageCount);
   }
-  if (command == 0x43) {  // oled send image
+  if (command == 0x43) {  // oled send data/image
     oled_write_data();
   }
-  if (command == 0x44) {  // oled technical parameters
+  if (command == 0x44) {  // oled set technical parameters
     uint8_t oled_speed = readSerialAscii();
     uint8_t oled_delay = readSerialAscii();
     uint8_t pre_charge_period = readSerialAscii();
